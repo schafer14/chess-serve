@@ -134,6 +134,8 @@ func (g GameHandler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	g.nc.Publish(fmt.Sprintf("game:%v:join", gameId), []byte(p.Name))
+
 	Respond(ctx, w, nil, http.StatusNoContent)
 	return
 }
@@ -153,7 +155,7 @@ func (g GameHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.nc.Subscribe(fmt.Sprintf("game:%v", gameId), func(m *nats.Msg) {
+	g.nc.Subscribe(fmt.Sprintf("game:%v:fen", gameId), func(m *nats.Msg) {
 		conn.WriteMessage(websocket.TextMessage, (m.Data))
 	})
 }
@@ -194,7 +196,7 @@ func (g GameHandler) Move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.nc.Publish(fmt.Sprintf("game:%v", gameId), []byte(game.Fen()))
+	g.nc.Publish(fmt.Sprintf("game:%v:fen", gameId), []byte(game.Fen()))
 
 	Respond(ctx, w, nil, http.StatusNoContent)
 	return
