@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/cors"
 	"github.com/gorilla/context"
+	"github.com/nats-io/nats.go"
 	"github.com/volatiletech/authboss"
 	"github.com/volatiletech/authboss/confirm"
 	"github.com/volatiletech/authboss/expire"
@@ -21,7 +22,7 @@ type Collections struct {
 	People       string
 }
 
-func API(build string, db *mongo.Database, ab *authboss.Authboss, cfg Collections, corsMid *cors.Cors, version string) chi.Router {
+func API(build string, db *mongo.Database, ab *authboss.Authboss, nc *nats.Conn, cfg Collections, corsMid *cors.Cors, version string) chi.Router {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -38,14 +39,9 @@ func API(build string, db *mongo.Database, ab *authboss.Authboss, cfg Collection
 	r.Use(ab.LoadClientStateMiddleware)
 	r.Use(remember.Middleware(ab))
 
-	// Define collections that will be used
-	obsColl := db.Collection(cfg.Observations)
-	personColl := db.Collection(cfg.People)
-	// Define handlers
 	authHandler := AuthHandler{ab}
 	checkHandler := Check{build, db, version}
-	oHandler := &ObservationHandler{obsColl}
-	personHandler := &PersonHandler{personColl}
+	gameHandler := GameHandler{db.Collection("games"), nc, ab}
 
 	// ======================================
 	// Protected routes
@@ -58,23 +54,6 @@ func API(build string, db *mongo.Database, ab *authboss.Authboss, cfg Collection
 
 		// Information about currently logged in user
 		r.MethodFunc("GET", "/v1/me", authHandler.CurrentlyLoggedIn)
-
-		// Generic observation handler
-		r.Route("/v1/observations", func(r chi.Router) {
-			r.Get("/", oHandler.Get)
-			r.Get("/{id}", oHandler.Find)
-			r.Post("/", oHandler.Create)
-		})
-
-		// Person router
-		r.Route("/v1/people", func(r chi.Router) {
-			r.Post("/", personHandler.Create)
-			r.Get("/{id}", personHandler.Find)
-			r.Get("/", personHandler.Get)
-
-			// observations
-			r.Post("/{id}/{propertySlug}/{propertyTypeSlug}", oHandler.Generic("people"))
-		})
 	})
 
 	// ======================================
@@ -89,14 +68,21 @@ func API(build string, db *mongo.Database, ab *authboss.Authboss, cfg Collection
 	// Unprotected Routes
 	// ======================================
 
+	// Game handler
+	r.Route("/v1/games", func(r chi.Router) {
+		r.Get("/{gameId}", gameHandler.Find)
+		r.Get("/{gameId}/follow", gameHandler.Follow)
+		r.Get("/{gameId}/fen", gameHandler.Fen)
+		r.Put("/{gameId}/join", gameHandler.Join)
+		r.Put("/{gameId}/move", gameHandler.Move)
+		r.Post("/", gameHandler.Create)
+	})
+
 	// Health Check
 	r.Get("/health", checkHandler.Health)
 	r.Get("/v1/health", checkHandler.Health)
 	r.Get("/version", checkHandler.Version)
 	r.Get("/v1/version", checkHandler.Version)
-
-	// Definitions route
-	r.Get("/v1/definitions", GetDefinitions)
 
 	return r
 }

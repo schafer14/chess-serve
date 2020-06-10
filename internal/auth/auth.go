@@ -8,6 +8,7 @@ import (
 	"github.com/volatiletech/authboss"
 	"github.com/volatiletech/authboss/otp/twofactor/totp2fa"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -224,8 +225,6 @@ func (u User) GetArbitrary() map[string]string {
 type Storer struct {
 	UsersC    *mongo.Collection
 	SessionsC *mongo.Collection
-	Users     map[string]User
-	Tokens    map[string][]string
 }
 
 // NewStorer constructor
@@ -233,8 +232,6 @@ func NewStorer(db *mongo.Database, collectionNames CollectionConfiguration) *Sto
 	return &Storer{
 		UsersC:    db.Collection(collectionNames.Users),
 		SessionsC: db.Collection(collectionNames.Sessions),
-		Users:     map[string]User{},
-		Tokens:    make(map[string][]string),
 	}
 }
 
@@ -245,7 +242,7 @@ func (m Storer) Save(ctx context.Context, user authboss.User) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := m.UsersC.ReplaceOne(ctx, bson.D{{"email", u.Email}}, u)
+	_, err := m.UsersC.ReplaceOne(ctx, bson.D{primitive.E{Key: "email", Value: u.Email}}, u)
 
 	if err != nil {
 		return errors.Wrap(err, "storing user")
@@ -256,20 +253,8 @@ func (m Storer) Save(ctx context.Context, user authboss.User) error {
 
 // Load the user
 func (m Storer) Load(ctx context.Context, key string) (user authboss.User, err error) {
-	// Check to see if our key is actually an oauth2 pid
-	provider, uid, err := authboss.ParseOAuth2PID(key)
-	if err == nil {
-		for _, u := range m.Users {
-			if u.OAuth2Provider == provider && u.OAuth2UID == uid {
-				return &u, nil
-			}
-		}
-
-		return nil, authboss.ErrUserNotFound
-	}
-
 	var u User
-	err = m.UsersC.FindOne(ctx, bson.D{{"email", key}}).Decode(&u)
+	err = m.UsersC.FindOne(ctx, bson.D{primitive.E{Key: "email", Value: key}}).Decode(&u)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, authboss.ErrUserNotFound
@@ -289,7 +274,8 @@ func (m Storer) New(_ context.Context) authboss.User {
 func (m Storer) Create(ctx context.Context, user authboss.User) error {
 	u := user.(*User)
 
-	err := m.UsersC.FindOne(ctx, bson.D{{"email", user.GetPID()}}).Decode(&u)
+	// err := m.UsersC.FindOne(ctx, bson.D{{"email", user.GetPID()}}).Decode(&u)
+	err := m.UsersC.FindOne(ctx, bson.D{primitive.E{Key: "email", Value: user.GetPID()}}).Decode(&u)
 	if err == nil {
 		return authboss.ErrUserFound
 	}
@@ -303,14 +289,14 @@ func (m Storer) Create(ctx context.Context, user authboss.User) error {
 		return errors.Wrap(err, "storing user")
 	}
 
-	m.Users[u.Email] = *u
 	return nil
 }
 
 // LoadByConfirmSelector looks a user up by confirmation token
 func (m Storer) LoadByConfirmSelector(ctx context.Context, selector string) (user authboss.ConfirmableUser, err error) {
 	var u User
-	err = m.UsersC.FindOne(ctx, bson.D{{"confirmselector", selector}}).Decode(&u)
+	// err = m.UsersC.FindOne(ctx, bson.D{{"confirmselector", selector}}).Decode(&u)
+	err = m.UsersC.FindOne(ctx, bson.D{primitive.E{Key: "confirmselector", Value: selector}}).Decode(&u)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, authboss.ErrUserNotFound

@@ -3,7 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/schafer14/obs/internal/platform/database"
+	"github.com/schafer14/chess-serve/internal/platform/database"
+
 	"go.mongodb.org/mongo-driver/mongo"
 )
 

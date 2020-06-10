@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/schafer14/chess-serve/internal/platform/database"
+
 	"github.com/pkg/errors"
-	"github.com/schafer14/obs/internal/platform/database"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 

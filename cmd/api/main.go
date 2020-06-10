@@ -10,13 +10,15 @@ import (
 	"os"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"github.com/schafer14/chess-serve/cmd/api/internal/handlers"
+	"github.com/schafer14/chess-serve/internal/auth"
+	"github.com/schafer14/chess-serve/internal/platform/database"
+
 	"github.com/ardanlabs/conf"
 	"github.com/go-chi/cors"
 	"github.com/gorilla/sessions"
 	"github.com/pkg/errors"
-	"github.com/schafer14/obs/cmd/api/internal/handlers"
-	"github.com/schafer14/obs/internal/auth"
-	"github.com/schafer14/obs/internal/platform/database"
 	"github.com/volatiletech/authboss"
 	abclientstate "github.com/volatiletech/authboss-clientstate"
 	abrenderer "github.com/volatiletech/authboss-renderer"
@@ -55,27 +57,29 @@ func run() error {
 		}
 		Database struct {
 			Uri         string `conf:"default:mongodb://localhost:27017"`
-			Name        string `conf:"default:observations"`
+			Name        string `conf:"default:chess"`
 			Collections struct {
-				Users        string `conf:"default:users"`
-				Sessions     string `conf:"default:sessions"`
-				Observations string `conf:"default:observations"`
-				People       string `conf:"default:people"`
-				Groups       string `conf:"default:groups"`
+				Users    string `conf:"default:users"`
+				Sessions string `conf:"default:sessions"`
+				People   string `conf:"default:people"`
+				Groups   string `conf:"default:groups"`
 			}
 		}
 		Auth struct {
 			CookieStoreKey    string `conf:"default:NpEPi8pEjKVjLGJ6kYCS+VTCzi6BUuDzU0wrwXyf5uDPArtlofn2AG6aTMiPmN3C909rsEWMNqJqhIVPGP3Exg==,noprint"`
 			SessionStoreKey   string `conf:"default:AbfYwmmt8UCwUuhd9qvfNA9UCuN1cVcKJN1ofbiky6xCyyBj20whe40rJa3Su0WOWLWcPpO1taqJdsEI/65+JA==,noprint"`
-			SessionCookieName string `conf:"default:observations,noprint"`
+			SessionCookieName string `conf:"default:chess,noprint"`
 			RootURL           string `conf:"default:localhost"`
+		}
+		Nats struct {
+			Server string `json:"default:nats://localhost:4222"`
 		}
 	}
 
-	if err := conf.Parse(os.Args[1:], "OBS", &cfg); err != nil {
+	if err := conf.Parse(os.Args[1:], "CHESS", &cfg); err != nil {
 		fmt.Println(err)
 		if err == conf.ErrHelpWanted {
-			usage, err := conf.Usage("OBS", &cfg)
+			usage, err := conf.Usage("CHESS", &cfg)
 			if err != nil {
 				return errors.Wrap(err, "generating config usage")
 			}
@@ -99,9 +103,14 @@ func run() error {
 	log.Printf("main : Config :\n%v\n", out)
 
 	// =============================================== //
+	// Configure NATS
+	// =============================================== //
+	nc, _ := nats.Connect(cfg.Nats.Server)
+
+	// =============================================== //
 	// Configure database
 	// =============================================== //
-	log.Println("main : Started : Initializing arango database support")
+	log.Println("main : Started : Initializing mongo database support")
 
 	db, err := database.Open(ctx, cfg.Database.Uri, cfg.Database.Name)
 	if err != nil {
@@ -157,11 +166,10 @@ func run() error {
 	log.Println("main : Started : Initializing API support")
 
 	collections := handlers.Collections{
-		Observations: cfg.Database.Collections.Observations,
-		People:       cfg.Database.Collections.People,
+		People: cfg.Database.Collections.People,
 	}
 
-	router := handlers.API(build, db, ab, collections, cors, version)
+	router := handlers.API(build, db, ab, nc, collections, cors, version)
 
 	http.ListenAndServe(cfg.APIHost, router)
 
