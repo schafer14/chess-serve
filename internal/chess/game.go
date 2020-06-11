@@ -98,9 +98,14 @@ func FindById(ctx context.Context, coll *mongo.Collection, id string) (Game, err
 
 func (g *game) Move(move string, playerId string) error {
 	b := board.New()
+
 	b.ApplyMoves(g.Moves)
-	if (b.Turn == 0 && playerId != g.WhiteId) || (b.Turn == 1 && playerId != g.BlackId) {
-		return fmt.Errorf("Invalid player")
+
+	if b.Turn == 0 && playerId != g.WhiteId {
+		return fmt.Errorf("whites move: expected player %v to move but go %v", g.WhiteId, playerId)
+	}
+	if (b.Turn == 1) && (playerId != g.BlackId) {
+		return fmt.Errorf("blacks move: expected player %v to move but go %v", g.BlackId, playerId)
 	}
 
 	m, err := b.MoveFromSrcDestNotation(move)

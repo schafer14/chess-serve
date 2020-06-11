@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -53,7 +54,7 @@ func run() error {
 	var cfg struct {
 		APIHost string `conf:"default:0.0.0.0:3000"`
 		Cors    struct {
-			AllowedHosts []string `conf:"default:*"`
+			AllowedHosts []string `conf:"default:http://localhost:15515"`
 		}
 		Database struct {
 			Uri         string `conf:"default:mongodb://localhost:27017"`
@@ -170,6 +171,13 @@ func run() error {
 	}
 
 	router := handlers.API(build, db, ab, nc, collections, cors, version)
+
+	// =============================================== //
+	// Add File Server
+	// =============================================== //
+	filesDir := http.Dir(filepath.Join("./static"))
+	FileServer(router, "/public", filesDir)
+	ServeFile(router, "*", "./static/index.html")
 
 	http.ListenAndServe(cfg.APIHost, router)
 

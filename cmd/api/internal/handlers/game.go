@@ -136,7 +136,7 @@ func (g GameHandler) Join(w http.ResponseWriter, r *http.Request) {
 
 	g.nc.Publish(fmt.Sprintf("game:%v:join", gameId), []byte(p.Name))
 
-	Respond(ctx, w, nil, http.StatusNoContent)
+	Respond(ctx, w, game, http.StatusOK)
 	return
 }
 
@@ -149,6 +149,7 @@ var upgrader = websocket.Upgrader{
 func (g GameHandler) Follow(w http.ResponseWriter, r *http.Request) {
 	gameId := chi.URLParam(r, "gameId")
 
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
@@ -186,7 +187,6 @@ func (g GameHandler) Move(w http.ResponseWriter, r *http.Request) {
 
 	err = game.Move(m.Move, p.Id)
 	if err != nil {
-		fmt.Println(err)
 		http.Error(w, http.StatusText(422), 422)
 	}
 
