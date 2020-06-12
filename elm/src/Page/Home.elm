@@ -105,7 +105,7 @@ update msg model =
             , Http.request
                 { method = "PUT"
                 , headers = []
-                , url = "http://localhost:3000/v1/games/" ++ gameId ++ "/join"
+                , url = "/v1/games/" ++ gameId ++ "/join"
                 , expect = Http.expectJson GotGame gameDecoder
                 , body = Http.emptyBody
                 , timeout = Nothing
@@ -116,7 +116,7 @@ update msg model =
         RequestGame ->
             ( model
             , Http.post
-                { url = "http://localhost:3000/v1/games"
+                { url = "/v1/games"
                 , expect = Http.expectJson GotGame gameDecoder
                 , body = Http.emptyBody
                 }

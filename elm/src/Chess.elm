@@ -1,4 +1,4 @@
-module Chess exposing (Color(..), Coordinate, Piece, PieceType(..), State, applyMove, fen2State, isLegal, isOn, moves, movesFrom, newGame)
+module Chess exposing (Color(..), Coordinate, Move, Piece, PieceType(..), State, applyMove, fen2State, isLegal, isOn, move2Str, moves, movesFrom, newGame)
 
 import Array
 import Maybe exposing (Maybe(..))
@@ -462,40 +462,95 @@ square2Coord sq =
     Maybe.map2 (\a b -> { x = a, y = b }) colSq rowSq
 
 
+move2Str : Move -> Maybe String
+move2Str m =
+    let
+        src =
+            coord2Str m.src
+
+        dest =
+            coord2Str m.dest
+    in
+    Maybe.map2 (++) src dest
+
+
+coord2Str : Coordinate -> Maybe String
+coord2Str c =
+    let
+        rowName =
+            rowToChar c.y
+
+        colName =
+            colToChar c.x
+    in
+    Maybe.map2 (++) colName rowName
+
+
 newGame : State
 newGame =
     fen2State "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
+colNames : List ( String, Int )
+colNames =
+    zip (String.split "" "abcdefgh") (List.range 0 25)
+
+
+rowNames : List ( String, Int )
+rowNames =
+    zip (String.split "" "12345678") (List.range 0 25)
+
+
+zip : List a -> List b -> List ( a, b )
+zip xs ys =
+    case ( xs, ys ) of
+        ( [], _ ) ->
+            []
+
+        ( _, [] ) ->
+            []
+
+        ( x :: xRest, y :: yRest ) ->
+            ( x, y ) :: zip xRest yRest
+
+
+find : List ( a, b ) -> a -> Maybe b
+find hayStack needle =
+    case hayStack of
+        [] ->
+            Nothing
+
+        ( s, i ) :: rest ->
+            if s == needle then
+                Just i
+
+            else
+                find rest needle
+
+
+rowToChar : Int -> Maybe String
+rowToChar i =
+    find (List.map flipTuple rowNames) i
+
+
+colToChar : Int -> Maybe String
+colToChar i =
+    find (List.map flipTuple colNames) i
+
+
+flipTuple : ( a, b ) -> ( b, a )
+flipTuple ( x, y ) =
+    ( y, x )
+
+
+charToRow : String -> Maybe Int
+charToRow str =
+    find rowNames str
+
+
 charToCol : String -> Maybe Int
 charToCol str =
-    case str of
-        "a" ->
-            Just 0
-
-        "b" ->
-            Just 1
-
-        "c" ->
-            Just 2
-
-        "d" ->
-            Just 3
-
-        "e" ->
-            Just 4
-
-        "f" ->
-            Just 5
-
-        "g" ->
-            Just 6
-
-        "h" ->
-            Just 7
-
-        _ ->
-            Nothing
+    find colNames str
 
 
 pawnConf : Color -> ( Int, Int, Int )

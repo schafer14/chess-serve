@@ -20,14 +20,15 @@ type Game interface {
 }
 
 type game struct {
-	Id      primitive.ObjectID `json:"id" bson:"_id"`
-	Date    time.Time          `json:"date"`
-	White   string             `json:"white"`
-	WhiteId string             `json:"whiteId"`
-	Black   string             `json:"black"`
-	BlackId string             `json:"blackId"`
-	Moves   []string           `json:"moves"`
-	Status  status             `json:"status"`
+	Id        primitive.ObjectID `json:"id" bson:"_id"`
+	Date      time.Time          `json:"date"`
+	White     string             `json:"white"`
+	WhiteId   string             `json:"whiteId"`
+	Black     string             `json:"black"`
+	BlackId   string             `json:"blackId"`
+	FenString string             `json:"fen" bson:"-"`
+	Moves     []string           `json:"moves"`
+	Status    status             `json:"status"`
 }
 
 type status int
@@ -51,6 +52,7 @@ func NewGame(id primitive.ObjectID, date time.Time, p Player) Game {
 	g.Date = date
 	g.Status = StatusInitiating
 	g.Moves = []string{}
+	g.FenString = board.New().String()
 
 	return &g
 }
@@ -91,6 +93,11 @@ func FindById(ctx context.Context, coll *mongo.Collection, id string) (Game, err
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieving game")
 	}
+
+	b := board.New()
+
+	b.ApplyMoves(g.Moves)
+	g.FenString = b.String()
 
 	return &g, nil
 

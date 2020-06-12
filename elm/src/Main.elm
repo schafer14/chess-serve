@@ -70,15 +70,10 @@ update msg model =
             parseUrl url model
 
         ( HomeMsg homeMsg, Home home ) ->
-            -- Home.update homeMsg home |> updateWith Home HomeMsg model
-            let
-                ( newModel, cmd ) =
-                    Home.update homeMsg home
-            in
-            ( { model | page = Home newModel }, Cmd.map HomeMsg cmd )
+            Home.update homeMsg home |> updateWith Home HomeMsg model
 
         ( GameMsg gameMsg, Game game ) ->
-            ( { model | page = Game <| Game.update gameMsg game }, Cmd.none )
+            Game.update gameMsg game |> updateWith Game GameMsg model
 
         _ ->
             ( model, Cmd.none )
@@ -107,9 +102,9 @@ view model =
             Skeleton.view GameMsg (Game.view game)
 
 
-updateWith : (subModel -> Model) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
+updateWith : (subModel -> Page) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
 updateWith toModel toMsg model ( subModel, subCmd ) =
-    ( toModel subModel
+    ( { model | page = toModel subModel }
     , Cmd.map toMsg subCmd
     )
 

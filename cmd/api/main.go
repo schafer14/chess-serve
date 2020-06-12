@@ -54,7 +54,7 @@ func run() error {
 	var cfg struct {
 		APIHost string `conf:"default:0.0.0.0:3000"`
 		Cors    struct {
-			AllowedHosts []string `conf:"default:http://localhost:15515"`
+			AllowedHosts []string
 		}
 		Database struct {
 			Uri         string `conf:"default:mongodb://localhost:27017"`

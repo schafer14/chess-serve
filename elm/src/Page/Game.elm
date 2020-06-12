@@ -5,8 +5,9 @@ import Cmd.Extra exposing (addCmd, addCmds, withCmd, withCmds, withNoCmd)
 import Element exposing (Element, centerX, centerY, el, html, layout)
 import Html exposing (Html, button, div)
 import Html.Events exposing (..)
-import Json.Decode as Decode
-import Json.Encode exposing (Value)
+import Http as Http
+import Json.Decode as Decode exposing (Decoder, field)
+import Json.Encode as Encode exposing (Value)
 import Maybe exposing (Maybe(..))
 import PortFunnel.WebSocket as WebSocket exposing (Response(..))
 import PortFunnels exposing (FunnelDict, Handler(..))
@@ -37,6 +38,8 @@ type Msg
     | BoardClick Coordinate
     | Flip
     | Recv String
+    | Sent (Result Http.Error ())
+    | GotGame (Result Http.Error String)
 
 
 subscriptions : Model -> Sub Msg
@@ -44,24 +47,49 @@ subscriptions _ =
     messageReceiver Recv
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         ClearBoard ->
-            clearBoard model
+            clearBoard model |> withNoCmd
 
         BoardClick coord ->
-            handleBoardEvent model coord
+            case handleBoardEvent model coord of
+                ( newModel, Nothing ) ->
+                    newModel |> withNoCmd
+
+                ( newModel, Just move ) ->
+                    case move2Str move of
+                        Just moveString ->
+                            ( newModel
+                            , Http.request
+                                { method = "PUT"
+                                , headers = []
+                                , url = "/v1/games/" ++ model.gameId ++ "/move"
+                                , expect = Http.expectWhatever Sent
+                                , body = Http.jsonBody <| encodeMove moveString
+                                , timeout = Nothing
+                                , tracker = Nothing
+                                }
+                            )
+
+                        Nothing ->
+                            model |> withNoCmd
 
         Flip ->
-            flip model
+            flip model |> withNoCmd
 
         Recv fen ->
-            let
-                _ =
-                    Debug.log "boardState" fen
-            in
-            { model | state = fen2State fen }
+            { model | state = fen2State fen } |> withNoCmd
+
+        Sent _ ->
+            model |> withNoCmd
+
+        GotGame (Ok fen) ->
+            { model | state = fen2State fen } |> withNoCmd
+
+        GotGame _ ->
+            model |> withNoCmd
 
 
 flip : Model -> Model
@@ -101,11 +129,11 @@ highlightSquare gameState coordinate =
     { gameState | paintings = newPaintings }
 
 
-handleBoardEvent : Model -> Coordinate -> Model
+handleBoardEvent : Model -> Coordinate -> ( Model, Maybe Move )
 handleBoardEvent state coordinate =
     case state.pieceMoving of
         Nothing ->
-            startPieceMove state coordinate
+            ( startPieceMove state coordinate, Nothing )
 
         Just p ->
             endPieceMove state coordinate p
@@ -130,7 +158,7 @@ startPieceMove boardState coordinate =
         { boardState | pieceMoving = piece }
 
 
-endPieceMove : Model -> Coordinate -> Piece -> Model
+endPieceMove : Model -> Coordinate -> Piece -> ( Model, Maybe Move )
 endPieceMove boardState dest oldPiece =
     let
         move =
@@ -143,10 +171,10 @@ endPieceMove boardState dest oldPiece =
             applyMove boardState.state move
     in
     if legal then
-        { boardState | state = newState, pieceMoving = Nothing }
+        ( { boardState | state = newState, pieceMoving = Nothing }, Just move )
 
     else
-        { boardState | pieceMoving = Nothing }
+        ( { boardState | pieceMoving = Nothing }, Nothing )
 
 
 type PaintColor
@@ -382,6 +410,13 @@ renderCoords perspective =
     g [ fill "rgba(0,0,0,.5)", Svg.Attributes.style "user-select: none" ] [ rowG, colG ]
 
 
+encodeMove : String -> Encode.Value
+encodeMove m =
+    Encode.object
+        [ ( "move", Encode.string m )
+        ]
+
+
 renderGrid : Color -> Html Msg
 renderGrid perspective =
     let
@@ -412,15 +447,25 @@ renderSquare perspective coord =
 
 init : Session -> String -> ( Model, Cmd Msg )
 init session id =
-    ( { gameId = id
-      , state = newGame
-      , perspective = White
-      , paintings = []
-      , pieceMoving = Maybe.Nothing
-      , session = session
-      }
-    , joinGame <| "ws://localhost:3000/v1/games/" ++ id ++ "/follow"
-    )
+    { gameId = id
+    , state = newGame
+    , perspective = White
+    , paintings = []
+    , pieceMoving = Maybe.Nothing
+    , session = session
+    }
+        |> withCmds
+            [ joinGame <| "ws://localhost:3000/v1/games/" ++ id ++ "/follow"
+            , Http.get
+                { url = "/v1/games/" ++ id
+                , expect = Http.expectJson GotGame gameDecoder
+                }
+            ]
+
+
+gameDecoder : Decoder String
+gameDecoder =
+    field "fen" Decode.string
 
 
 alwaysOn : Msg -> ( Msg, Bool )
