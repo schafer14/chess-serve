@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/pkg/errors"
 	"github.com/volatiletech/authboss"
 )
 
@@ -15,11 +14,7 @@ type AuthHandler struct {
 func (a *AuthHandler) CurrentlyLoggedIn(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	u, err := a.ab.CurrentUser(r)
-	if err != nil {
-		RespondError(ctx, w, errors.Wrap(err, "fetching current user"))
-		return
-	}
+	p := getPlayer(w, r, a.ab)
 
-	Respond(ctx, w, u, http.StatusOK)
+	Respond(ctx, w, p, http.StatusOK)
 }

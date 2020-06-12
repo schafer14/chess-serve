@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -83,7 +84,9 @@ func (g GameHandler) Find(w http.ResponseWriter, r *http.Request) {
 
 	gameId := chi.URLParam(r, "gameId")
 
-	game, err := chess.FindById(ctx, g.coll, gameId)
+	p := getPlayer(w, r, g.ab)
+
+	game, err := chess.FindById(ctx, g.coll, gameId, p)
 	if err != nil {
 		RespondError(ctx, w, errors.Wrap(err, "creating game"))
 		return
@@ -99,7 +102,9 @@ func (g GameHandler) Fen(w http.ResponseWriter, r *http.Request) {
 
 	gameId := chi.URLParam(r, "gameId")
 
-	game, err := chess.FindById(ctx, g.coll, gameId)
+	p := getPlayer(w, r, g.ab)
+
+	game, err := chess.FindById(ctx, g.coll, gameId, p)
 	if err != nil {
 		RespondError(ctx, w, errors.Wrap(err, "creating game"))
 		return
@@ -115,13 +120,13 @@ func (g GameHandler) Join(w http.ResponseWriter, r *http.Request) {
 
 	gameId := chi.URLParam(r, "gameId")
 
-	game, err := chess.FindById(ctx, g.coll, gameId)
+	p := getPlayer(w, r, g.ab)
+
+	game, err := chess.FindById(ctx, g.coll, gameId, p)
 	if err != nil {
 		RespondError(ctx, w, errors.Wrap(err, "creating game"))
 		return
 	}
-
-	p := getPlayer(w, r, g.ab)
 
 	game.Join(p)
 	if err != nil {
@@ -134,7 +139,9 @@ func (g GameHandler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.nc.Publish(fmt.Sprintf("game:%v:join", gameId), []byte(p.Name))
+	sub := fmt.Sprintf("game.%v.join", gameId)
+	msg := fmt.Sprintf("{\"color\": \"black\", \"name\": \"%s\"}", p.Name)
+	g.nc.Publish(sub, []byte(msg))
 
 	Respond(ctx, w, game, http.StatusOK)
 	return
@@ -143,6 +150,11 @@ func (g GameHandler) Join(w http.ResponseWriter, r *http.Request) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+type WsMessage struct {
+	Type    string      `json:"t"`
+	Message interface{} `json:"m"`
 }
 
 // Follow uses websockets to get updates of the game in real time.
@@ -156,8 +168,12 @@ func (g GameHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.nc.Subscribe(fmt.Sprintf("game:%v:fen", gameId), func(m *nats.Msg) {
-		conn.WriteMessage(websocket.TextMessage, (m.Data))
+	g.nc.Subscribe(fmt.Sprintf("game.%v.*", gameId), func(m *nats.Msg) {
+		parts := strings.Split(m.Subject, ".")
+		sub := parts[len(parts)-1]
+		msg := WsMessage{sub, string(m.Data)}
+		fmt.Println("event", sub)
+		conn.WriteJSON(msg)
 	})
 }
 
@@ -177,13 +193,13 @@ func (g GameHandler) Move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	game, err := chess.FindById(ctx, g.coll, gameId)
+	p := getPlayer(w, r, g.ab)
+
+	game, err := chess.FindById(ctx, g.coll, gameId, p)
 	if err != nil {
 		RespondError(ctx, w, errors.Wrap(err, "creating game"))
 		return
 	}
-
-	p := getPlayer(w, r, g.ab)
 
 	err = game.Move(m.Move, p.Id)
 	if err != nil {
@@ -196,7 +212,7 @@ func (g GameHandler) Move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g.nc.Publish(fmt.Sprintf("game:%v:fen", gameId), []byte(game.Fen()))
+	g.nc.Publish(fmt.Sprintf("game.%v.fen", gameId), []byte(game.Fen()))
 
 	Respond(ctx, w, nil, http.StatusNoContent)
 	return

@@ -2,8 +2,12 @@ port module Page.Game exposing (Model, Msg, init, subscriptions, update, view)
 
 import Chess exposing (..)
 import Cmd.Extra exposing (addCmd, addCmds, withCmd, withCmds, withNoCmd)
-import Element exposing (Element, centerX, centerY, el, html, layout)
+import Element exposing (Element, centerX, centerY, column, el, html, layout, padding, rgb, rgb255, row, spacing)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Font as Font
 import Html exposing (Html, button, div)
+import Html.Attributes as Attributes
 import Html.Events exposing (..)
 import Http as Http
 import Json.Decode as Decode exposing (Decoder, field)
@@ -20,7 +24,7 @@ import Svg.Attributes exposing (..)
 port joinGame : String -> Cmd msg
 
 
-port messageReceiver : (String -> msg) -> Sub msg
+port messageReceiver : (GameMsg -> msg) -> Sub msg
 
 
 type alias Model =
@@ -29,6 +33,8 @@ type alias Model =
     , perspective : Color
     , paintings : List Painting
     , pieceMoving : Maybe Piece
+    , controlling : List Color
+    , players : ( String, String )
     , session : Session
     }
 
@@ -37,13 +43,17 @@ type Msg
     = ClearBoard
     | BoardClick Coordinate
     | Flip
-    | Recv String
+    | Recv GameMsg
     | Sent (Result Http.Error ())
-    | GotGame (Result Http.Error String)
+    | GotGame (Result Http.Error GameResponse)
+
+
+type alias GameMsg =
+    { t : String, m : String }
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions m =
     messageReceiver Recv
 
 
@@ -79,17 +89,87 @@ update msg model =
         Flip ->
             flip model |> withNoCmd
 
-        Recv fen ->
-            { model | state = fen2State fen } |> withNoCmd
+        Recv m ->
+            let
+                _ =
+                    Debug.log "m" m
+            in
+            case m.t of
+                "fen" ->
+                    { model | state = fen2State m.m } |> withNoCmd
+
+                "join" ->
+                    updatePlayer m.m model |> withNoCmd
+
+                _ ->
+                    model |> withNoCmd
 
         Sent _ ->
             model |> withNoCmd
 
-        GotGame (Ok fen) ->
-            { model | state = fen2State fen } |> withNoCmd
+        GotGame (Ok gr) ->
+            updateMeta model gr |> withNoCmd
 
-        GotGame _ ->
+        GotGame r ->
             model |> withNoCmd
+
+
+type alias PlayerMsg =
+    { color : String, name : String }
+
+
+playerMsgDecoder : Decoder PlayerMsg
+playerMsgDecoder =
+    Decode.map2 PlayerMsg
+        (Decode.field "color" Decode.string)
+        (Decode.field "name" Decode.string)
+
+
+updatePlayer : String -> Model -> Model
+updatePlayer str model =
+    let
+        ( whitePlayer, blackPlayer ) =
+            model.players
+    in
+    case Decode.decodeString playerMsgDecoder str of
+        Result.Ok p ->
+            if p.color == "black" then
+                { model | players = ( whitePlayer, p.name ) }
+
+            else if p.color == "white" then
+                { model | players = ( p.name, blackPlayer ) }
+
+            else
+                model
+
+        _ ->
+            model
+
+
+updateMeta : Model -> GameResponse -> Model
+updateMeta model response =
+    let
+        perspective =
+            if response.controlsBlack && not response.controlsWhite then
+                Black
+
+            else
+                White
+
+        zipped =
+            zip [ White, Black ] [ response.controlsWhite, response.controlsBlack ]
+
+        controls =
+            zipped
+                |> List.filter (\( _, x ) -> x)
+                |> List.map (\( x, _ ) -> x)
+    in
+    { model
+        | state = fen2State response.fen
+        , players = ( response.white, response.black )
+        , perspective = perspective
+        , controlling = controls
+    }
 
 
 flip : Model -> Model
@@ -150,8 +230,11 @@ startPieceMove boardState coordinate =
 
         canMove =
             0 < (List.length <| movesFrom boardState.state coordinate)
+
+        myPiece =
+            Maybe.withDefault False <| Maybe.map (\p -> List.member p.color boardState.controlling) piece
     in
-    if not canMove then
+    if not canMove || not myPiece then
         boardState
 
     else
@@ -188,10 +271,51 @@ type Painting
 
 view : Model -> Skeleton.Details Msg
 view boardState =
+    let
+        ( whiteName, blackName ) =
+            boardState.players
+
+        ( topName, bottomName ) =
+            if boardState.perspective == White then
+                ( blackNameBadge blackName, whiteNameBadge whiteName )
+
+            else
+                ( whiteNameBadge whiteName, blackNameBadge blackName )
+    in
     { title = "Game"
     , content =
-        layout [] <| el [ centerX, centerY ] (html <| renderBoard boardState)
+        layout [] <|
+            column [ centerX, centerY ]
+                [ row [ Element.alignRight ] [ topName ]
+                , el [ centerX, centerY ] (html <| renderBoard boardState)
+                , row [] [ bottomName ]
+                ]
     }
+
+
+whiteNameBadge : String -> Element Msg
+whiteNameBadge name =
+    el
+        [ padding 20
+        , Border.widthEach { bottom = 1, top = 1, right = 1, left = 1 }
+        , Border.color (rgb255 50 50 50)
+        , Font.color (rgb255 50 50 50)
+        , Element.htmlAttribute <| Attributes.style "user-select" "none"
+        ]
+        (Element.text name)
+
+
+blackNameBadge : String -> Element Msg
+blackNameBadge name =
+    el
+        [ padding 20
+        , Border.widthEach { bottom = 1, top = 1, right = 1, left = 1 }
+        , Border.color (rgb255 215 215 215)
+        , Background.color (rgb255 50 50 50)
+        , Font.color (rgb255 215 215 215)
+        , Element.htmlAttribute <| Attributes.style "user-select" "none"
+        ]
+        (Element.text name)
 
 
 renderBoard : Model -> Html Msg
@@ -453,6 +577,8 @@ init session id =
     , paintings = []
     , pieceMoving = Maybe.Nothing
     , session = session
+    , controlling = []
+    , players = ( "Unknown", "Unknown" )
     }
         |> withCmds
             [ joinGame <| "ws://localhost:3000/v1/games/" ++ id ++ "/follow"
@@ -463,9 +589,23 @@ init session id =
             ]
 
 
-gameDecoder : Decoder String
+type alias GameResponse =
+    { fen : String
+    , controlsWhite : Bool
+    , controlsBlack : Bool
+    , white : String
+    , black : String
+    }
+
+
+gameDecoder : Decoder GameResponse
 gameDecoder =
-    field "fen" Decode.string
+    Decode.map5 GameResponse
+        (field "fen" Decode.string)
+        (field "controlsWhite" Decode.bool)
+        (field "controlsBlack" Decode.bool)
+        (field "white" Decode.string)
+        (field "black" Decode.string)
 
 
 alwaysOn : Msg -> ( Msg, Bool )
@@ -505,3 +645,16 @@ lightBlue =
 
 blue =
     "rgb(45, 89, 145)"
+
+
+zip : List a -> List b -> List ( a, b )
+zip xs ys =
+    case ( xs, ys ) of
+        ( [], _ ) ->
+            []
+
+        ( _, [] ) ->
+            []
+
+        ( x :: xRest, y :: yRest ) ->
+            ( x, y ) :: zip xRest yRest

@@ -20,15 +20,17 @@ type Game interface {
 }
 
 type game struct {
-	Id        primitive.ObjectID `json:"id" bson:"_id"`
-	Date      time.Time          `json:"date"`
-	White     string             `json:"white"`
-	WhiteId   string             `json:"whiteId"`
-	Black     string             `json:"black"`
-	BlackId   string             `json:"blackId"`
-	FenString string             `json:"fen" bson:"-"`
-	Moves     []string           `json:"moves"`
-	Status    status             `json:"status"`
+	Id            primitive.ObjectID `json:"id" bson:"_id"`
+	Date          time.Time          `json:"date"`
+	White         string             `json:"white"`
+	WhiteId       string             `json:"whiteId"`
+	Black         string             `json:"black"`
+	BlackId       string             `json:"blackId"`
+	FenString     string             `json:"fen" bson:"-"`
+	ControlsWhite bool               `json:"controlsWhite" bson:"-"`
+	ControlsBlack bool               `json:"controlsBlack" bson:"-"`
+	Moves         []string           `json:"moves"`
+	Status        status             `json:"status"`
 }
 
 type status int
@@ -48,11 +50,13 @@ func NewGame(id primitive.ObjectID, date time.Time, p Player) Game {
 	var g = game{}
 	g.Id = id
 	g.White = p.Name
+	g.Black = "Unknown"
 	g.WhiteId = p.Id
 	g.Date = date
 	g.Status = StatusInitiating
 	g.Moves = []string{}
 	g.FenString = board.New().String()
+	g.ControlsWhite = true
 
 	return &g
 }
@@ -61,6 +65,11 @@ func (g *game) Join(p Player) {
 	g.Black = p.Name
 	g.BlackId = p.Id
 	g.Status = StatusInProgress
+	g.FenString = g.Fen()
+	g.ControlsBlack = true
+	if g.WhiteId == p.Id {
+		g.ControlsWhite = true
+	}
 	return
 }
 
@@ -80,7 +89,7 @@ func (g *game) Save(ctx context.Context, coll *mongo.Collection) error {
 	return nil
 }
 
-func FindById(ctx context.Context, coll *mongo.Collection, id string) (Game, error) {
+func FindById(ctx context.Context, coll *mongo.Collection, id string, p Player) (Game, error) {
 	var g game
 	oid, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
@@ -98,6 +107,16 @@ func FindById(ctx context.Context, coll *mongo.Collection, id string) (Game, err
 
 	b.ApplyMoves(g.Moves)
 	g.FenString = b.String()
+
+	if g.WhiteId == p.Id {
+		g.ControlsWhite = true
+	}
+	if g.BlackId == p.Id {
+		g.ControlsBlack = true
+	}
+	if g.Black == "" {
+		g.Black = "Unknown"
+	}
 
 	return &g, nil
 
