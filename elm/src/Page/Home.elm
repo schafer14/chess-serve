@@ -36,7 +36,8 @@ init session =
 view : Model -> Details Msg
 view model =
     { title = "Home"
-    , content = layout [] <| renderHome model
+    , content = renderHome model
+    , session = model.session
     }
 
 
@@ -78,10 +79,6 @@ renderHome model =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    let
-        _ =
-            Debug.log "update" ( msg, model )
-    in
     case msg of
         JoinGame ->
             ( { model | isJoining = True }, Cmd.none )

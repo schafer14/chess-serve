@@ -5,6 +5,8 @@ import Browser.Navigation as Nav
 import Html exposing (Html)
 import Page.Game as Game
 import Page.Home as Home
+import Page.Login as Login
+import Page.Logout as Logout
 import Page.Problem as Problem
 import Session as Session exposing (Session)
 import Skeleton
@@ -32,6 +34,8 @@ type alias Model =
 type Page
     = NotFound
     | Home Home.Model
+    | Login Login.Model
+    | Logout Logout.Model
     | Game Game.Model
 
 
@@ -41,6 +45,8 @@ type Msg
     | UrlChanged Url.Url
     | HomeMsg Home.Msg
     | GameMsg Game.Msg
+    | LoginMsg Login.Msg
+    | LogoutMsg Logout.Msg
 
 
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
@@ -75,6 +81,12 @@ update msg model =
         ( GameMsg gameMsg, Game game ) ->
             Game.update gameMsg game |> updateWith Game GameMsg model
 
+        ( LoginMsg loginMsg, Login login ) ->
+            Login.update loginMsg login |> updateWith Login LoginMsg model
+
+        ( LogoutMsg logoutMsg, Logout logout ) ->
+            Logout.update logoutMsg logout |> updateWith Logout LogoutMsg model
+
         _ ->
             ( model, Cmd.none )
 
@@ -101,6 +113,12 @@ view model =
         Game game ->
             Skeleton.view GameMsg (Game.view game)
 
+        Login login ->
+            Skeleton.view LoginMsg (Login.view login)
+
+        Logout logout ->
+            Skeleton.view LogoutMsg (Logout.view logout)
+
 
 updateWith : (subModel -> Page) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
 updateWith toModel toMsg model ( subModel, subCmd ) =
@@ -120,6 +138,8 @@ parseUrl url model =
             oneOf
                 [ route top (wrapInit Home HomeMsg <| Home.init model.session)
                 , route (s "home") (wrapInit Home HomeMsg <| Home.init model.session)
+                , route (s "login") (wrapInit Login LoginMsg <| Login.init model.session)
+                , route (s "logout") (wrapInit Logout LogoutMsg <| Logout.init model.session)
                 , route (s "game" </> string)
                     (\gameId -> wrapInit Game GameMsg (Game.init model.session gameId))
                 ]

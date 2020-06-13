@@ -317,12 +317,12 @@ view boardState =
     in
     { title = "Game"
     , content =
-        layout [] <|
-            column [ centerX, centerY ]
-                [ row [ Element.alignRight ] [ topName ]
-                , el [ centerX, centerY ] (html <| renderBoard boardState)
-                , row [] [ bottomName ]
-                ]
+        column [ centerX, centerY ]
+            [ row [ Element.alignRight ] [ topName ]
+            , el [ centerX, centerY ] (html <| renderBoard boardState)
+            , row [] [ bottomName ]
+            ]
+    , session = boardState.session
     }
 
 
@@ -671,7 +671,7 @@ init session id =
     , promotionMove = Nothing
     }
         |> withCmds
-            [ joinGame <| "ws://localhost:3000/v1/games/" ++ id ++ "/follow"
+            [ joinGame <| "/v1/games/" ++ id ++ "/follow"
             , Http.get
                 { url = "/v1/games/" ++ id
                 , expect = Http.expectJson GotGame gameDecoder

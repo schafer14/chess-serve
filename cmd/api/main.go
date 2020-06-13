@@ -70,7 +70,7 @@ func run() error {
 			CookieStoreKey    string `conf:"default:NpEPi8pEjKVjLGJ6kYCS+VTCzi6BUuDzU0wrwXyf5uDPArtlofn2AG6aTMiPmN3C909rsEWMNqJqhIVPGP3Exg==,noprint"`
 			SessionStoreKey   string `conf:"default:AbfYwmmt8UCwUuhd9qvfNA9UCuN1cVcKJN1ofbiky6xCyyBj20whe40rJa3Su0WOWLWcPpO1taqJdsEI/65+JA==,noprint"`
 			SessionCookieName string `conf:"default:chess,noprint"`
-			RootURL           string `conf:"default:localhost"`
+			RootURL           string `conf:"default:localhost:3000"`
 		}
 		Nats struct {
 			Server string `json:"default:nats://localhost:4222"`
@@ -135,6 +135,7 @@ func run() error {
 	ab.Config.Storage.Server = auth.NewStorer(db, auth.CollectionConfiguration{cfg.Database.Collections.Users, cfg.Database.Collections.Sessions})
 	ab.Config.Storage.SessionState = sessionStorer
 	ab.Config.Storage.CookieState = abclientstate.NewCookieStorer(cookieStoreKey, nil)
+	ab.Config.Modules.RecoverLoginAfterRecovery = false
 
 	ab.Config.Core.ViewRenderer = defaults.JSONRenderer{}
 	defaults.SetCore(&ab.Config, true, false)
@@ -145,6 +146,9 @@ func run() error {
 	ab.Config.Core.MailRenderer = abrenderer.NewEmail("/v1/auth", "ab_views")
 	ab.Config.Paths.Mount = "/v1/auth"
 	ab.Config.Paths.RootURL = cfg.Auth.RootURL
+	ab.Config.Modules.LogoutMethod = "GET"
+
+	ab.Config.Core.Redirector = &redirector{}
 
 	if err := ab.Init(); err != nil {
 		return errors.Wrap(err, "configuring authboss")
@@ -156,7 +160,7 @@ func run() error {
 	cors := cors.New(cors.Options{
 		AllowedOrigins:   cfg.Cors.AllowedHosts,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedHeaders:   []string{},
 		AllowCredentials: true,
 		MaxAge:           300, // Maximum value not ignored by any of major browsers
 	})
@@ -175,11 +179,30 @@ func run() error {
 	// =============================================== //
 	// Add File Server
 	// =============================================== //
+
 	filesDir := http.Dir(filepath.Join("./static"))
 	FileServer(router, "/public", filesDir)
+	ServeFile(router, "favicon.ico", "./static/favicon.ico")
 	ServeFile(router, "*", "./static/index.html")
 
 	http.ListenAndServe(cfg.APIHost, router)
+
+	return nil
+}
+
+// FIND A WAY TO GET RID OF THIS
+type redirector struct{}
+
+func (re *redirector) Redirect(w http.ResponseWriter, r *http.Request, ro authboss.RedirectOptions) error {
+
+	w.Header().Add("Content-Type", "application/json")
+	if ro.Code == 307 {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("{\"status\": \"ok\"}"))
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(fmt.Sprintf("{\"status\": \"%s\"}", ro.Failure)))
+	}
 
 	return nil
 }
