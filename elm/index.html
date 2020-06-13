@@ -23,7 +23,6 @@ app.ports.joinGame.subscribe(function(url) {
     const socket = new WebSocket(url);
 
     socket.addEventListener("message", function(event) {
-      console.log(event)
         app.ports.messageReceiver.send(JSON.parse(event.data));
     });
 });

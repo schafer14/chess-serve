@@ -2,7 +2,7 @@ port module Page.Game exposing (Model, Msg, init, subscriptions, update, view)
 
 import Chess exposing (..)
 import Cmd.Extra exposing (addCmd, addCmds, withCmd, withCmds, withNoCmd)
-import Element exposing (Element, centerX, centerY, column, el, html, layout, padding, rgb, rgb255, row, spacing)
+import Element exposing (Element, centerX, centerY, column, el, html, layout, padding, rgb, rgb255, rgba255, row, spacing)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
@@ -35,6 +35,8 @@ type alias Model =
     , pieceMoving : Maybe Piece
     , controlling : List Color
     , players : ( String, String )
+    , askPromotion : Bool
+    , promotionMove : Maybe Move
     , session : Session
     }
 
@@ -46,6 +48,7 @@ type Msg
     | Recv GameMsg
     | Sent (Result Http.Error ())
     | GotGame (Result Http.Error GameResponse)
+    | Promote PieceType
 
 
 type alias GameMsg =
@@ -62,6 +65,34 @@ update msg model =
     case msg of
         ClearBoard ->
             clearBoard model |> withNoCmd
+
+        Promote toPiece ->
+            case model.promotionMove of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just m ->
+                    let
+                        move =
+                            { m | promotion = Just toPiece }
+
+                        newState =
+                            applyMove model.state move
+
+                        moveString =
+                            Maybe.withDefault "" <| move2Str move
+                    in
+                    ( { model | state = newState, askPromotion = False, promotionMove = Nothing }
+                    , Http.request
+                        { method = "PUT"
+                        , headers = []
+                        , url = "/v1/games/" ++ model.gameId ++ "/move"
+                        , expect = Http.expectWhatever Sent
+                        , body = Http.jsonBody <| encodeMove moveString
+                        , timeout = Nothing
+                        , tracker = Nothing
+                        }
+                    )
 
         BoardClick coord ->
             case handleBoardEvent model coord of
@@ -90,10 +121,6 @@ update msg model =
             flip model |> withNoCmd
 
         Recv m ->
-            let
-                _ =
-                    Debug.log "m" m
-            in
             case m.t of
                 "fen" ->
                     { model | state = fen2State m.m } |> withNoCmd
@@ -252,9 +279,15 @@ endPieceMove boardState dest oldPiece =
 
         newState =
             applyMove boardState.state move
+
+        waitForPromotion =
+            (dest.y == 7 || dest.y == 0) && oldPiece.pieceType == Pawn
     in
-    if legal then
+    if legal && not waitForPromotion then
         ( { boardState | state = newState, pieceMoving = Nothing }, Just move )
+
+    else if legal then
+        ( { boardState | promotionMove = Just move, askPromotion = True, pieceMoving = Nothing }, Nothing )
 
     else
         ( { boardState | pieceMoving = Nothing }, Nothing )
@@ -333,6 +366,7 @@ renderBoard boardState =
         , renderPaintings boardState.perspective boardState.paintings
         , renderPieces boardState.perspective boardState.state.pieces
         , renderDots boardState.perspective boardState
+        , renderPromotion boardState.askPromotion
         ]
 
 
@@ -363,6 +397,60 @@ coordToLoc perspective coord =
             yPlace * 10
     in
     ( xVal, yVal )
+
+
+renderPromotion : Bool -> Html Msg
+renderPromotion isShowing =
+    if not isShowing then
+        g [] []
+
+    else
+        g []
+            [ rect [ x "10", y "30", width "60", height "20", fill cream, strokeWidth ".5", stroke "rgba(0,0,0,.5)" ] []
+            , text_
+                [ x "40", y "37", fontSize "5", textAnchor "middle", fill "rgba(0,0,0,0.5)" ]
+                [ Svg.text "Promote" ]
+            , image
+                [ onClickNoProp <| Promote Queen
+                , Svg.Attributes.cursor "pointer"
+                , x "16"
+                , y "38"
+                , width "10"
+                , height "10"
+                , xlinkHref "/public/white-queen.svg"
+                ]
+                []
+            , image
+                [ onClickNoProp <| Promote Rook
+                , Svg.Attributes.cursor "pointer"
+                , x "29"
+                , y "38"
+                , width "10"
+                , height "10"
+                , xlinkHref "/public/white-rook.svg"
+                ]
+                []
+            , image
+                [ onClickNoProp <| Promote Bishop
+                , Svg.Attributes.cursor "pointer"
+                , x "42"
+                , y "38"
+                , width "10"
+                , height "10"
+                , xlinkHref "/public/white-bishop.svg"
+                ]
+                []
+            , image
+                [ onClickNoProp <| Promote Knight
+                , Svg.Attributes.cursor "pointer"
+                , x "54"
+                , y "38"
+                , width "10"
+                , height "10"
+                , xlinkHref "/public/white-knight.svg"
+                ]
+                []
+            ]
 
 
 pieceName : PieceType -> String
@@ -579,6 +667,8 @@ init session id =
     , session = session
     , controlling = []
     , players = ( "Unknown", "Unknown" )
+    , askPromotion = False
+    , promotionMove = Nothing
     }
         |> withCmds
             [ joinGame <| "ws://localhost:3000/v1/games/" ++ id ++ "/follow"

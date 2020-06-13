@@ -1,7 +1,7 @@
 module Chess exposing (Color(..), Coordinate, Move, Piece, PieceType(..), State, applyMove, fen2State, isLegal, isOn, move2Str, moves, movesFrom, newGame)
 
 import Array
-import Maybe exposing (Maybe(..))
+import Maybe exposing (Maybe(..), withDefault)
 
 
 type alias State =
@@ -21,7 +21,9 @@ type alias CastlePrivledges =
 
 
 type alias Coordinate =
-    { x : Int, y : Int }
+    { x : Int
+    , y : Int
+    }
 
 
 type PieceType
@@ -62,43 +64,97 @@ moves s =
 
 movesFrom : State -> Coordinate -> List Move
 movesFrom state c =
+    state.pieces
+        |> List.filter (isOn c)
+        |> List.filter (\p -> p.color == state.onMove)
+        |> List.head
+        |> Maybe.map (candidateMoves state)
+        |> Maybe.withDefault []
+        |> List.filter (\m -> not <| isNonsenseMove state state.onMove m)
+        |> List.filter (safeFromCheck state)
+
+
+candidateMoves : State -> Piece -> List Move
+candidateMoves state piece =
     let
-        piece =
-            state.pieces |> List.filter (isOn c) |> List.head
+        possibleMoves =
+            case piece.pieceType of
+                Knight ->
+                    knightMoves state piece
 
-        info =
-            piece |> Maybe.map (\p -> ( p.color == state.onMove, p.pieceType, p ))
+                Pawn ->
+                    pawnMoves state piece
 
-        candidateMoves =
-            case info of
-                Nothing ->
-                    []
+                Bishop ->
+                    bishopMoves state piece
 
-                Just ( False, _, _ ) ->
-                    []
+                Rook ->
+                    rookMoves state piece
 
-                Just ( True, Knight, knight ) ->
-                    knightMoves state knight
+                Queen ->
+                    queenMoves state piece
 
-                Just ( True, Pawn, pawn ) ->
-                    pawnMoves state pawn
-
-                Just ( True, Bishop, bishop ) ->
-                    bishopMoves state bishop
-
-                Just ( True, Rook, rook ) ->
-                    rookMoves state rook
-
-                Just ( True, Queen, queen ) ->
-                    queenMoves state queen
-
-                Just ( True, King, king ) ->
-                    kingMoves state king
-
-        finalMoves =
-            candidateMoves |> List.filter (\m -> not <| isNonsenseMove state m)
+                King ->
+                    List.concat [ kingMoves state piece, castlingMoves state piece ]
     in
-    finalMoves
+    List.filter (\m -> not <| isNonsenseMove state piece.color m) possibleMoves
+
+
+attackSurface : State -> Color -> List Coordinate
+attackSurface state color =
+    state.pieces
+        |> List.filter (\p -> p.color == color)
+        |> List.map (attackSurfacePiece state)
+        |> List.concat
+
+
+attackSurfacePiece : State -> Piece -> List Coordinate
+attackSurfacePiece state piece =
+    let
+        possibleMoves =
+            case piece.pieceType of
+                Knight ->
+                    knightMoves state piece
+
+                Pawn ->
+                    pawnMoves state piece
+
+                Bishop ->
+                    bishopMoves state piece
+
+                Rook ->
+                    rookMoves state piece
+
+                Queen ->
+                    queenMoves state piece
+
+                King ->
+                    kingMoves state piece
+    in
+    possibleMoves
+        |> List.filter (\m -> not <| isNonsenseMove state piece.color m)
+        |> List.map (\m -> m.dest)
+
+
+safeFromCheck : State -> Move -> Bool
+safeFromCheck state move =
+    let
+        stateAfterMove =
+            applyMove state move
+
+        opponentsMoves =
+            attackSurface stateAfterMove stateAfterMove.onMove
+
+        endsInCheck =
+            stateAfterMove.pieces
+                |> List.filter (\p -> p.pieceType == King)
+                |> List.filter (\p -> p.color == state.onMove)
+                |> List.map (\p -> p.coordinate)
+                |> List.head
+                |> Maybe.map (\kingCoord -> List.member kingCoord opponentsMoves)
+                |> Maybe.withDefault False
+    in
+    not endsInCheck
 
 
 bishopMoves : State -> Piece -> List Move
@@ -125,7 +181,7 @@ queenMoves state piece =
 
 
 knightMoves : State -> Piece -> List Move
-knightMoves state knight =
+knightMoves _ knight =
     let
         ox =
             knight.coordinate.x
@@ -145,7 +201,7 @@ knightMoves state knight =
 
 
 kingMoves : State -> Piece -> List Move
-kingMoves state king =
+kingMoves _ king =
     let
         ox =
             king.coordinate.x
@@ -162,6 +218,62 @@ kingMoves state king =
     , { src = { x = ox, y = oy }, dest = { x = ox + 1, y = oy }, promotion = Nothing }
     , { src = { x = ox, y = oy }, dest = { x = ox + -1, y = oy }, promotion = Nothing }
     ]
+
+
+castlingMoves : State -> Piece -> List Move
+castlingMoves state _ =
+    let
+        rank =
+            if state.onMove == White then
+                0
+
+            else
+                7
+
+        opp =
+            if state.onMove == White then
+                Black
+
+            else
+                White
+
+        priv =
+            if state.onMove == White then
+                [ state.castlingPrivledges.whiteKing, state.castlingPrivledges.whiteQueen ]
+
+            else
+                [ state.castlingPrivledges.blackKing, state.castlingPrivledges.blackQueen ]
+
+        dangerSquares =
+            attackSurface state opp
+
+        kingSideChecks =
+            [ { x = 4, y = rank }, { x = 5, y = rank } ]
+
+        queenSideChecks =
+            [ { x = 4, y = rank }, { x = 3, y = rank } ]
+
+        canKingSide =
+            0 == List.length (intersect kingSideChecks dangerSquares)
+
+        canQueenSide =
+            0 == List.length (intersect queenSideChecks dangerSquares)
+
+        results =
+            [ { src = { x = 4, y = rank }, dest = { x = 6, y = rank }, promotion = Nothing }
+            , { src = { x = 2, y = rank }, dest = { x = 2, y = rank }, promotion = Nothing }
+            ]
+    in
+    zip [ canKingSide, canQueenSide ] priv
+        |> List.map (\( x, y ) -> x && y)
+        |> zip results
+        |> List.filter (\( _, x ) -> x)
+        |> List.map (\( y, _ ) -> y)
+
+
+intersect : List a -> List a -> List a
+intersect xs ys =
+    List.filter (\x -> List.member x ys) xs
 
 
 pawnMoves : State -> Piece -> List Move
@@ -239,7 +351,7 @@ slidingPiece state color startCoord directions =
                     List.any (isOn next) state.pieces
 
                 isNonsense =
-                    isNonsenseMove state move
+                    isNonsenseMove state state.onMove move
             in
             if hasPiece || isNonsense then
                 [ move ]
@@ -269,7 +381,7 @@ applyMove state move =
                 |> List.head
 
         newPiece =
-            Maybe.map (updateCoordinate move.dest) oldPiece
+            Maybe.map (updateCoordinate move) oldPiece
 
         pieces =
             Maybe.map (\p -> p :: newList) newPiece
@@ -282,8 +394,8 @@ applyMove state move =
             { state | pieces = p, onMove = otherColor state.onMove }
 
 
-isNonsenseMove : State -> Move -> Bool
-isNonsenseMove state move =
+isNonsenseMove : State -> Color -> Move -> Bool
+isNonsenseMove state color move =
     let
         outOfRange x =
             x < 0 || x > 7
@@ -292,7 +404,7 @@ isNonsenseMove state move =
             outOfRange move.src.x || outOfRange move.src.y || outOfRange move.dest.x || outOfRange move.dest.y
 
         captureFriendly =
-            state.pieces |> List.filter (isOn move.dest) |> List.any (\p -> p.color == state.onMove)
+            state.pieces |> List.filter (isOn move.dest) |> List.any (\p -> p.color == color)
 
         noop =
             move.src == move.dest
@@ -329,9 +441,13 @@ isNotOn coord piece =
     piece.coordinate /= coord
 
 
-updateCoordinate : Coordinate -> Piece -> Piece
-updateCoordinate c p =
-    { p | coordinate = c }
+updateCoordinate : Move -> Piece -> Piece
+updateCoordinate m p =
+    let
+        pType =
+            Maybe.withDefault p.pieceType m.promotion
+    in
+    { p | coordinate = m.dest, pieceType = pType }
 
 
 fen2State : String -> State
@@ -470,8 +586,36 @@ move2Str m =
 
         dest =
             coord2Str m.dest
+
+        movePart =
+            Maybe.map2 (++) src dest
+
+        promoPart =
+            Maybe.withDefault "" <| Maybe.map pieceToChar m.promotion
     in
-    Maybe.map2 (++) src dest
+    Maybe.map (\x -> x ++ promoPart) movePart
+
+
+pieceToChar : PieceType -> String
+pieceToChar p =
+    case p of
+        King ->
+            "K"
+
+        Queen ->
+            "Q"
+
+        Rook ->
+            "R"
+
+        Bishop ->
+            "B"
+
+        Knight ->
+            "K"
+
+        Pawn ->
+            "P"
 
 
 coord2Str : Coordinate -> Maybe String

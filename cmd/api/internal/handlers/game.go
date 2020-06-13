@@ -172,7 +172,6 @@ func (g GameHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(m.Subject, ".")
 		sub := parts[len(parts)-1]
 		msg := WsMessage{sub, string(m.Data)}
-		fmt.Println("event", sub)
 		conn.WriteJSON(msg)
 	})
 }
