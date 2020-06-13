@@ -16,3 +16,9 @@ elm-react:
 elm-react-index:
 	cp elm/index.html static/index.html
 
+.Phony: build
+build:
+	cd elm && \
+	elm make src/Main.elm --output elm.js --optimize && \
+	cp elm.js ../static/elm.js
+	cp elm/index.html static/index.html

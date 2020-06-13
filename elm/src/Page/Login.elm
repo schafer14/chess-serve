@@ -183,10 +183,6 @@ update msg model =
             )
 
         GotLogin res ->
-            let
-                _ =
-                    Debug.log "error" res
-            in
             ( model, Cmd.none )
 
 
